@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#e9e6dd">
+  <title>歌切制作台</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">◉</span><div><strong>歌切制作台</strong><small>LYRIC VIDEO STUDIO</small></div></div>
+    <div class="top-actions">
+      <div class="theme-picker"><span>主题</span><div class="theme-switch" role="group" aria-label="制作台主题"><button id="theme-paper" type="button" aria-pressed="true">暖纸唱片</button><button id="theme-rainy" type="button" aria-pressed="false">雨后便利店</button><button id="theme-player" type="button" aria-pressed="false">流光播放器</button></div></div>
+      <label class="button ghost" for="project-import">导入 JSON</label>
+      <input id="project-import" type="file" accept=".json,application/json" hidden>
+      <button id="project-save" class="button ghost" type="button">保存 JSON</button>
+      <button id="export-png" class="button ghost" type="button">导出当前画面</button>
+      <label class="export-mode">导出方式<select id="export-mode" aria-label="视频导出方式"><option value="video-direct">视频直合 60 帧</option><option value="direct" selected>直接合成 30 帧</option><option value="record">实时录制</option></select></label>
+      <button id="export-video" class="button primary" type="button">导出视频</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="preview-column" aria-label="视频预览">
+      <div class="section-heading"><div><span class="eyebrow">LIVE CANVAS / 16:9</span><h1>实时预览</h1></div><span id="save-state" class="save-state">本地草稿</span></div>
+      <div class="canvas-frame"><canvas id="preview" width="1920" height="1080" aria-label="歌词视频画面预览"></canvas></div>
+      <div class="transport">
+        <button id="prev-line" type="button" title="上一句" aria-label="上一句">⟵</button>
+        <button id="play-toggle" class="play-button" type="button" aria-label="播放">▶</button>
+        <button id="next-line" type="button" title="下一句" aria-label="下一句">⟶</button>
+        <span id="time-readout" class="time-readout">00:00 / 03:48</span>
+        <input id="seek" type="range" min="0" max="228" step="0.05" value="0" aria-label="播放进度">
+      </div>
+      <div id="export-status" class="export-status" role="status" aria-live="polite">素材仅送往本机合成服务，不会上传到互联网。</div>
+      <button id="cancel-export" class="button cancel hidden" type="button">停止合成</button>
+      <p class="hint">导入视频后默认使用 60 帧视频直合；也可切换原来的直接合成或实时录制。</p>
+    </section>
+
+    <aside class="editor" aria-label="内容编辑">
+      <div class="editor-header"><span class="eyebrow">CONTENT</span><h2>内容编排</h2><p>导入歌曲，给歌词逐句打点，预览并导出。</p></div>
+
+      <section class="editor-section">
+        <div class="editor-section-title"><span class="number">01</span><h3>素材</h3></div>
+        <div class="upload-grid">
+          <label class="upload-box" for="media-input"><strong>＋ 导入音频</strong><small id="media-name">MP3、WAV 等格式</small></label>
+          <input id="media-input" type="file" accept="audio/*" hidden>
+          <label class="upload-box" for="video-input"><strong>＋ 导入视频</strong><small id="video-name">MP4、WebM 等格式</small></label>
+          <input id="video-input" type="file" accept="video/*" hidden>
+          <label class="upload-box cover-upload" for="cover-input"><strong>＋ 上传自定义封面</strong><small id="cover-name">视频也可使用 · PNG、JPG、WebP</small></label>
+          <input id="cover-input" type="file" accept="image/*" hidden>
+        </div>
+        <div class="visual-controls">
+          <div class="visual-controls-heading"><strong>封面区域画面</strong><span>导出时使用当前选择</span></div>
+          <div class="visual-source-switch" role="group" aria-label="封面区域画面来源">
+            <button id="visual-source-video" type="button" aria-pressed="false" disabled>视频画面</button>
+            <button id="visual-source-cover" type="button" aria-pressed="false" disabled>自定义封面</button>
+          </div>
+          <button id="remove-cover" class="remove-cover" type="button" disabled>移除自定义封面</button>
+          <div class="video-adjust">
+            <label for="video-zoom">视频缩放 <output id="video-zoom-value" for="video-zoom">100%</output></label>
+            <input id="video-zoom" type="range" min="1" max="3" step="0.01" value="1" disabled>
+            <button id="video-reset" class="button ghost" type="button" disabled>重置位置和大小</button>
+          </div>
+          <p id="visual-help" class="field-note">导入视频后，可在预览中的方形画面上拖动，并用滑杆或鼠标滚轮缩放。</p>
+        </div>
+      </section>
+
+      <section class="editor-section">
+        <div class="editor-section-title"><span class="number">02</span><h3>歌曲信息</h3></div>
+        <div class="fields two">
+          <label>歌曲名<input id="song-title" autocomplete="off" placeholder="输入歌曲名"></label>
+          <label>主播 / 歌手<input id="song-artist" autocomplete="off" placeholder="输入主播名"></label>
+          <label>专辑 / 出处<input id="song-album" autocomplete="off" placeholder="歌回切片"></label>
+          <label>总时长<input id="song-duration" inputmode="numeric" placeholder="03:48"></label>
+          <label>标签<input id="song-tags" autocomplete="off" placeholder="歌回 夜晚"></label>
+          <label>页脚文字<input id="song-footer" autocomplete="off" placeholder="CREATED LOCALLY"></label>
+        </div>
+        <label class="full-field">歌曲简介<textarea id="song-description" rows="2" placeholder="可以写一句简短介绍"></textarea></label>
+      </section>
+
+      <section class="editor-section lyrics-section">
+        <div class="editor-section-title"><span class="number">03</span><h3>歌词时间线</h3><span id="line-count" class="count">0 行</span></div>
+        <p class="field-note">每行写一个出现时间。播放时点“取当前时间”即可快速打点。</p>
+        <div class="lyric-display-control">
+          <span>预览与导出样式</span>
+          <div class="lyric-display-switch" role="group" aria-label="歌词展示方式">
+            <button id="lyric-style-timeline" type="button" aria-pressed="true">时间线</button>
+            <button id="lyric-style-scroll" type="button" aria-pressed="false">滚动渐变</button>
+          </div>
+        </div>
+        <div class="lyrics-file-import">
+          <label class="button ghost" for="lyrics-file-input">导入 TXT / LRC 文件</label>
+          <input id="lyrics-file-input" type="file" accept=".txt,.lrc,text/plain" hidden>
+          <span id="lyrics-file-name">支持 [00:12.50]（歌词）和普通 LRC；导入时追加到现有歌词。</span>
+        </div>
+        <div id="lyric-list" class="lyric-list"></div>
+        <button id="add-line" class="button add-line" type="button">＋ 添加歌词节点</button>
+        <details class="import-lrc"><summary>粘贴歌词或逐行文本</summary><textarea id="lrc-text" rows="5" placeholder="[00:12.50]（第一句歌词）\n[00:17.20]（第二句歌词）"></textarea><button id="lrc-import" class="button ghost" type="button">导入到时间线</button></details>
+      </section>
+    </aside>
+  </main>
+
+  <audio id="audio-source" preload="metadata"></audio>
+  <video id="video-source" preload="metadata" playsinline></video>
+  <script src="lyric-parser.js"></script>
+  <script src="video-frame.js"></script>
+  <script src="export-timeline.js"></script>
+  <script src="recording-export.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+<style>
+  .preview-shell{background:#111827;border:1px solid #31425d;border-radius:18px;overflow:hidden;box-shadow:0 24px 60px #09111f88}
+  .preview-top{display:flex;justify-content:space-between;align-items:center;padding:16px 22px;background:#151e2d;border-bottom:1px solid #293951;color:#dce8f8}
+  .preview-top small{color:#90a6c3}.preview-workspace{display:grid;grid-template-columns:270px 1fr;min-height:520px}
+  .workbench{padding:20px;background:#182334;border-right:1px solid #30425a;color:#e5edf8}
+  .workbench h3{margin:0 0 6px;font-size:18px}.workbench .sub{font-size:12px;color:#9dafc7;margin:0 0 22px}
+  .setting{padding:14px 0;border-top:1px solid #31425a}.setting strong{display:block;font-size:13px;margin-bottom:10px}.setting small{display:block;color:#9dafc7;margin-top:8px;line-height:1.5}
+  .choice{display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid #415671;border-radius:9px;margin:7px 0;font-size:12px;color:#cbd8e9}.choice.on{background:#294a72;border-color:#79c9f6;color:#fff}.dot{width:8px;height:8px;border-radius:100%;background:#82d8f3;box-shadow:0 0 12px #82d8f3}
+  .upload{margin-top:9px;width:100%;border:1px dashed #7189a9;color:#deebfa;background:#202f45;padding:11px;border-radius:8px;font-size:12px}
+  .canvas-area{padding:25px;display:flex;align-items:center;justify-content:center;background:#101827}.canvas-label{color:#a7bad2;font-size:12px;margin:0 0 10px;display:flex;justify-content:space-between}
+  .canvas{position:relative;width:min(100%,880px);aspect-ratio:16/9;overflow:hidden;border-radius:9px;background:radial-gradient(ellipse at 19% 35%,#315db2 0%,transparent 48%),linear-gradient(118deg,#102553 5%,#183d79 51%,#5b71bd 100%);box-shadow:0 12px 40px #020818aa;color:#f6f4ef}
+  .disc{position:absolute;left:9%;top:21%;width:37%;aspect-ratio:1;border-radius:100%;background:repeating-radial-gradient(circle,#15171c 0 2px,#20232a 3px 4px,#101115 5px 7px);box-shadow:0 14px 28px #07132999,inset 0 0 0 7px #0e1119}
+  .label{position:absolute;inset:28%;border-radius:100%;background:radial-gradient(circle at 50% 50%,#13151b 0 4%,transparent 5%),linear-gradient(145deg,#f1d8ad 0 40%,#b65343 41% 68%,#222934 69%);border:1px solid #f4e0be77}
+  .tonearm{position:absolute;left:27%;top:18%;width:21%;height:9px;border-radius:8px;background:linear-gradient(#fff,#cdd3db);transform:rotate(29deg);box-shadow:0 2px 8px #0008}.tonearm:before{content:'';position:absolute;left:-12px;top:-5px;width:19px;height:19px;background:#e6e7e9;border-radius:50%;box-shadow:0 0 0 5px #171b24}
+  .song{position:absolute;left:55%;top:10%;right:7%}.song h2{font-size:clamp(18px,2.4vw,32px);margin:0 0 5px}.song small{color:#c4d1e5}.lyrics{margin-top:7%;display:grid;gap:12px;color:#b7c5db;font-size:clamp(12px,1.35vw,18px)}.lyrics b{color:#fff;font-size:1.13em;border-left:3px solid #f4d99b;padding-left:12px}
+  .progress{position:absolute;left:5%;right:5%;bottom:12%;height:2px;background:#c8d2e288}.progress:before{content:'';display:block;width:42%;height:2px;background:#f2d793}.controls{position:absolute;bottom:3.2%;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:28px;color:#fff;font-size:19px}.play{border:1px solid #cdd7e4;border-radius:50%;width:43px;height:43px;display:grid;place-items:center;font-size:17px;background:#ffffff18}
+  @media(max-width:760px){.preview-workspace{grid-template-columns:1fr}.workbench{border-right:0;border-bottom:1px solid #30425a}.canvas-area{padding:14px}.setting{display:inline-block;vertical-align:top;width:48%;padding-right:8px}.canvas{width:100%}}
+</style>
+<h2>歌切主题：唱片播放界面</h2>
+<p class="subtitle">布局示意：背景设置留在工作台；成片画布和导出视频里只显示主题内容。</p>
+<div class="preview-shell">
+  <div class="preview-top"><strong>歌切制作台</strong><small>主题设置与成片预览</small></div>
+  <div class="preview-workspace">
+    <aside class="workbench">
+      <h3>工作台</h3><p class="sub">背景设置</p>
+      <div class="setting"><strong>背景来源</strong>
+        <div class="choice on"><span class="dot"></span>视频取色渐变</div>
+        <small>从导入视频提取主色，生成纯色渐变背景。</small>
+      </div>
+      <div class="setting"><strong>自定义背景</strong>
+        <div class="choice">○　自定义图片</div>
+        <button class="upload">＋　导入背景图片</button>
+        <small>图片仅作为成片背景，不显示这些设置控件。</small>
+      </div>
+    </aside>
+    <section class="canvas-area"><div style="width:100%">
+      <div class="canvas-label"><span>成片预览</span><span>1920 × 1080</span></div>
+      <div class="canvas">
+        <div class="tonearm"></div><div class="disc"><div class="label"></div></div>
+        <div class="song"><h2>晚风与山海</h2><small>陈陌　·　城市与远方</small>
+          <div class="lyrics"><span>路过城市的灯火</span><span>你在远处向我挥手</span><span>时间慢慢地走</span><b>我终于看见了自己</b><span>在这平凡的日子里</span></div>
+        </div>
+        <div class="progress"></div><div class="controls"><span>◀</span><span class="play">Ⅱ</span><span>▶</span></div>
+      </div>
+    </div></section>
+  </div>
+</div>
