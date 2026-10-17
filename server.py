@@ -22,7 +22,7 @@ from urllib.parse import quote, urlparse
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-from renderer import FrameRenderer, parse_time
+from renderer import FrameRenderer, parse_time, vinyl_seconds_per_turn
 from direct_video import direct_video_command, write_ass
 
 JOBS: dict[str, dict] = {}
@@ -130,6 +130,16 @@ def compose_command(job: dict, ffmpeg: str) -> list[str]:
                 "[ambient][sharp]overlay=94:126[backdrop];"
                 "[backdrop][art]overlay=0:0:shortest=1:format=auto,format=yuv420p[v]"
             )
+        elif job.get("project", {}).get("theme") == "vinyl-player":
+            period = vinyl_seconds_per_turn(job.get("project", {}).get("vinylSecondsPerTurn"))
+            filters = (
+                "[0:v]fps=30,format=rgba[art];"
+                f"[1:v]scale={width}:{height}:flags=lanczos,setsar=1,"
+                f"crop=643:643:{crop_x}:{crop_y},scale=300:300:flags=lanczos,setpts=PTS-STARTPTS,"
+                f"rotate=2*PI*t/{period:g}:ow=300:oh=300:fillcolor=black,"
+                "pad=1920:1080:400:360:black[base];"
+                "[base][art]overlay=0:0:shortest=1:format=auto,format=yuv420p[v]"
+            )
         else:
             filters = (
                 "[0:v]fps=30,format=rgba[art];"
@@ -139,7 +149,17 @@ def compose_command(job: dict, ffmpeg: str) -> list[str]:
                 "[base][art]overlay=0:0:shortest=1:format=auto,format=yuv420p[v]"
             )
     else:
-        filters = "[0:v]fps=30,format=yuv420p[v]"
+        if job.get("project", {}).get("theme") == "vinyl-player":
+            period = vinyl_seconds_per_turn(job.get("project", {}).get("vinylSecondsPerTurn"))
+            command += ["-loop", "1", "-framerate", "30", "-i", str(path / "vinyl_art.png")]
+            filters = (
+                "[0:v]fps=30,format=rgba[art];"
+                f"[2:v]fps=30,format=rgba,setpts=PTS-STARTPTS,rotate=2*PI*t/{period:g}:"
+                "ow=300:oh=300:fillcolor=black,pad=1920:1080:400:360:black[cover];"
+                "[cover][art]overlay=0:0:shortest=1:format=auto,format=yuv420p[v]"
+            )
+        else:
+            filters = "[0:v]fps=30,format=yuv420p[v]"
     command += [
         "-filter_complex", filters,
         "-map", "[v]", "-map", "1:a:0?",
@@ -169,7 +189,7 @@ def clean_job_files(job: dict, keep_output: bool = False) -> None:
     path = job["path"]
     if keep_output:
         shutil.rmtree(path / "frames", ignore_errors=True)
-        for name in ("source.media", "manifest.ffconcat", "recording.webm", "static.png", "lyrics.ass"):
+        for name in ("source.media", "manifest.ffconcat", "recording.webm", "static.png", "vinyl_art.png", "lyrics.ass"):
             (path / name).unlink(missing_ok=True)
     else:
         shutil.rmtree(path, ignore_errors=True)
@@ -202,7 +222,11 @@ def render_job(job: dict, ffmpeg: str) -> None:
     try:
         if job["state"] == "cancelled":
             return
-        renderer = FrameRenderer(job["project"], job["duration"], job["use_video"])
+        external_vinyl_art = job["project"].get("theme") == "vinyl-player" and not job["use_video"]
+        renderer = FrameRenderer(job["project"], job["duration"], job["use_video"],
+                                 external_vinyl_art=external_vinyl_art)
+        if external_vinyl_art:
+            renderer._vinyl_art.save(job["path"] / "vinyl_art.png")
         for index, time in enumerate(job["times"]):
             if job["state"] == "cancelled":
                 return

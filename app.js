@@ -13,6 +13,7 @@
   const { parseLyricText, decodeLyricBytes } = window.SongcutLyrics;
   const { getVideoPlacement } = window.SongcutVideoFrame;
   const { frameTimes } = window.SongcutExportTimeline;
+  const vinylTheme = window.SongcutVinylTheme;
   const coverFrame = { x: 92, y: 145, size: 643 };
   const THEMES = {
     paper: {
@@ -38,10 +39,18 @@
       empty: "#e1d6d6", activeBackground: "rgba(255,255,255,.14)", activeAccent: "#fff5ef", activeTime: "#fff9f5", idleTime: "rgba(255,248,245,.67)",
       activeText: "#fffaf7", idleText: "rgba(255,248,245,.72)", activeTranslation: "rgba(255,248,245,.82)", idleTranslation: "rgba(255,248,245,.5)", lyricLine: "rgba(255,255,255,.14)",
       coverStart: "#553a50", coverMiddle: "#98677d", coverEnd: "#d0a19b", coverRing: "rgba(255,245,238,.5)", coverText: "#fff6f0", coverBorder: "rgba(255,255,255,.75)"
+    },
+    "vinyl-player": {
+      canvas: "#102553", grid: "rgba(255,255,255,.02)", panel: "rgba(10,25,54,.2)", panelLine: "rgba(255,255,255,.12)",
+      heading: "#f5f7ff", album: "#c7d7f2", title: "#fffaf4", artist: "#d7e2f4", tags: "#c1d2ed", transport: "#fffaf4",
+      progressBase: "rgba(242,248,255,.45)", progress: "#f2d99f", eyebrow: "#d2e1f6", secondary: "#fffaf4", muted: "#c7d5ed", line: "rgba(255,255,255,.22)",
+      empty: "#d7e4f2", activeBackground: "rgba(255,255,255,.04)", activeAccent: "#f2d99f", activeTime: "#f2d99f", idleTime: "#b6c7e1",
+      activeText: "#fffaf4", idleText: "#c9d5e7", activeTranslation: "#eef3fc", idleTranslation: "#aabbd5", lyricLine: "rgba(255,255,255,.12)",
+      coverStart: "#1e3765", coverMiddle: "#9c554b", coverEnd: "#e4c49c", coverRing: "rgba(255,244,224,.65)", coverText: "#fff7e9", coverBorder: "rgba(255,244,224,.70)"
     }
   };
   const ids = [
-    "project-import", "project-save", "export-png", "export-mode", "export-video", "theme-paper", "theme-rainy", "theme-player", "media-input",
+    "project-import", "project-save", "export-png", "export-mode", "export-video", "theme-paper", "theme-rainy", "theme-player", "theme-vinyl", "media-input",
     "video-input", "video-name", "cover-input", "media-name", "cover-name", "song-title", "song-artist",
     "song-album", "song-duration", "song-tags", "song-footer", "song-description",
     "lyric-list", "line-count", "add-line", "lrc-text", "lrc-import",
@@ -49,7 +58,8 @@
     "lyrics-file-input", "lyrics-file-name", "prev-line",
     "play-toggle", "next-line", "time-readout", "seek", "save-state",
     "export-status", "cancel-export", "visual-source-video", "visual-source-cover",
-    "video-zoom", "video-zoom-value", "video-reset", "visual-help", "remove-cover"
+    "video-zoom", "video-zoom-value", "video-reset", "visual-help", "remove-cover",
+    "vinyl-background-controls", "vinyl-bg-video", "vinyl-bg-image", "vinyl-bg-input", "vinyl-bg-remove", "vinyl-bg-status", "vinyl-speed", "vinyl-speed-value"
   ];
   const el = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
@@ -68,6 +78,10 @@
       videoTransform: { x: 0, y: 0, scale: 1 },
       lyrics: [],
       lyricDisplay: "timeline",
+      vinylBackgroundMode: "video-color",
+      vinylBackgroundColors: [...vinylTheme.DEFAULT_GRADIENT],
+      vinylBackgroundData: "",
+      vinylSecondsPerTurn: 40,
       theme: "paper"
     };
   }
@@ -80,7 +94,13 @@
     }
     if (value.visualSource === "cover") base.visualSource = "cover";
     if (value.lyricDisplay === "scroll") base.lyricDisplay = "scroll";
-    if (["rainy-night", "flow-player"].includes(value.theme)) base.theme = value.theme;
+    if (["rainy-night", "flow-player", "vinyl-player"].includes(value.theme)) base.theme = value.theme;
+    if (value.vinylBackgroundMode === "custom-image") base.vinylBackgroundMode = "custom-image";
+    base.vinylBackgroundColors = vinylTheme.normalizeGradientColors(value.vinylBackgroundColors);
+    base.vinylSecondsPerTurn = vinylTheme.normalizeSecondsPerTurn(value.vinylSecondsPerTurn);
+    if (typeof value.vinylBackgroundData === "string" && /^data:image\/(?:png|jpeg|webp);base64,/.test(value.vinylBackgroundData)) {
+      base.vinylBackgroundData = value.vinylBackgroundData;
+    }
     if (value.videoTransform && typeof value.videoTransform === "object") {
       for (const key of ["x", "y", "scale"]) {
         const number = Number(value.videoTransform[key]);
@@ -116,6 +136,9 @@
   let mediaFile = null;
   let mediaURL = "";
   let coverImage = null;
+  let vinylBackgroundImage = null;
+  let vinylPaletteStatus = "未导入视频时使用内置深蓝渐变。";
+  let vinylSampleToken = 0;
   let currentTime = 0;
   let exportState = null;
   let lastActiveId = null;
@@ -134,12 +157,16 @@
   function updateThemeControls() {
     const rainy = project.theme === "rainy-night";
     const player = project.theme === "flow-player";
+    const vinyl = project.theme === "vinyl-player";
     document.body.dataset.theme = project.theme;
-    document.querySelector('meta[name="theme-color"]').content = player ? "#281e27" : rainy ? "#193654" : "#e9e6dd";
-    el["export-status"].style.color = player ? "#e0d3d4" : rainy ? "#b7d0e8" : "#4b5f60";
+    document.querySelector('meta[name="theme-color"]').content = player ? "#281e27" : rainy || vinyl ? "#193654" : "#e9e6dd";
+    el["export-status"].style.color = player ? "#e0d3d4" : rainy || vinyl ? "#b7d0e8" : "#4b5f60";
     el["theme-paper"].setAttribute("aria-pressed", String(project.theme === "paper"));
     el["theme-rainy"].setAttribute("aria-pressed", String(rainy));
     el["theme-player"].setAttribute("aria-pressed", String(player));
+    el["theme-vinyl"].setAttribute("aria-pressed", String(vinyl));
+    updateVinylBackgroundControls();
+    updateVisualControls();
   }
 
   function applyVideoTransform(next) {
@@ -170,12 +197,68 @@
     el["video-reset"].disabled = !videoIsSelected();
     el["video-zoom"].value = String(project.videoTransform.scale);
     el["video-zoom-value"].textContent = Math.round(project.videoTransform.scale * 100) + "%";
+    const frameName = project.theme === "vinyl-player" ? "唱片中央的圆形画面" : "预览中的方形画面";
     el["visual-help"].textContent = videoIsSelected()
-      ? "在预览中的方形画面按住拖动；用滑杆或鼠标滚轮缩放。"
+      ? `在${frameName}按住拖动；用滑杆或鼠标滚轮缩放。`
       : hasCover && hasVideo ? "当前使用上传的封面；切回“视频画面”可以继续调整视频。"
         : hasCover ? "当前使用上传的封面；导入视频后也可以切换画面。"
-        : "导入视频后，可在预览中的方形画面上拖动，并用滑杆或鼠标滚轮缩放。";
+        : `导入视频后，可在${frameName}上拖动，并用滑杆或鼠标滚轮缩放。`;
     canvas.classList.toggle("can-pan", videoIsSelected());
+  }
+
+  function updateVinylBackgroundControls() {
+    const custom = project.vinylBackgroundMode === "custom-image";
+    el["vinyl-background-controls"].classList.toggle("hidden", project.theme !== "vinyl-player");
+    el["vinyl-bg-video"].setAttribute("aria-pressed", String(!custom));
+    el["vinyl-bg-image"].setAttribute("aria-pressed", String(custom));
+    el["vinyl-bg-remove"].disabled = !project.vinylBackgroundData;
+    el["vinyl-speed"].value = String(project.vinylSecondsPerTurn);
+    el["vinyl-speed-value"].textContent = `${project.vinylSecondsPerTurn} 秒/圈`;
+    el["vinyl-bg-status"].textContent = custom
+      ? project.vinylBackgroundData ? "正在使用自定义背景图片。" : "请导入背景图片；当前暂用视频渐变。"
+      : mediaKind === "video" ? vinylPaletteStatus : "未导入视频时使用内置深蓝渐变。";
+  }
+
+  function loadVinylBackgroundData(data) {
+    if (!data) {
+      vinylBackgroundImage = null;
+      updateVinylBackgroundControls();
+      drawPreview();
+      return;
+    }
+    const image = new Image();
+    image.onload = () => {
+      if (project.vinylBackgroundData !== data) return;
+      vinylBackgroundImage = image;
+      updateVinylBackgroundControls();
+      drawPreview();
+    };
+    image.onerror = () => {
+      if (project.vinylBackgroundData !== data) return;
+      vinylBackgroundImage = null;
+      status("背景图片无法打开，已使用渐变背景。", true);
+      drawPreview();
+    };
+    image.src = data;
+  }
+
+  async function sampleVinylBackground(sourceURL) {
+    const token = ++vinylSampleToken;
+    vinylPaletteStatus = "正在从视频画面提取颜色……";
+    updateVinylBackgroundControls();
+    try {
+      const colors = await vinylTheme.sampleGradientFromVideo(sourceURL);
+      if (token !== vinylSampleToken || mediaURL !== sourceURL || mediaKind !== "video") return;
+      project.vinylBackgroundColors = colors;
+      vinylPaletteStatus = "已根据导入视频生成纯色渐变。";
+      updateVinylBackgroundControls();
+      saveDraft();
+      drawPreview();
+    } catch (_) {
+      if (token !== vinylSampleToken) return;
+      vinylPaletteStatus = "无法从视频取色，当前使用上次色调或内置渐变。";
+      updateVinylBackgroundControls();
+    }
   }
 
   function parseTime(raw) {
@@ -288,7 +371,7 @@
 
   function status(message, error = false) {
     el["export-status"].textContent = message;
-    el["export-status"].style.color = error ? "#e58f82" : (project.theme === "flow-player" ? "#e0d3d4" : project.theme === "rainy-night" ? "#b7d0e8" : "#4b5f60");
+    el["export-status"].style.color = error ? "#e58f82" : (project.theme === "flow-player" ? "#e0d3d4" : ["rainy-night", "vinyl-player"].includes(project.theme) ? "#b7d0e8" : "#4b5f60");
   }
 
   function saveDraft() {
@@ -1105,12 +1188,117 @@
     ctx.fillText(fitText(project.footer || "", 520), 96, 1030);
   }
 
+  function drawVinylCanvas() {
+    const W = canvas.width;
+    const H = canvas.height;
+    vinylTheme.drawBackground(ctx, project, vinylBackgroundImage, W, H);
+    vinylTheme.drawRecord(ctx, () => {
+      ctx.save();
+      ctx.translate(vinylTheme.LABEL.x, vinylTheme.LABEL.y);
+      ctx.scale(vinylTheme.LABEL.size / coverFrame.size, vinylTheme.LABEL.size / coverFrame.size);
+      if (videoIsSelected() || coverImage) {
+        drawCover(0, 0, coverFrame.size);
+      } else {
+        const blank = ctx.createLinearGradient(0, 0, 643, 643);
+        blank.addColorStop(0, "#203861"); blank.addColorStop(.55, "#a85d53"); blank.addColorStop(1, "#e4c49c");
+        ctx.fillStyle = blank; ctx.fillRect(0, 0, 643, 643);
+        ctx.strokeStyle = "rgba(255,244,224,.6)"; ctx.lineWidth = 8;
+        for (let radius = 95; radius <= 260; radius += 50) {
+          ctx.beginPath(); ctx.arc(322, 322, radius, 0, Math.PI * 2); ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }, vinylTheme.rotationAngle(currentTime, project.vinylSecondsPerTurn));
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(255,250,244,.94)";
+    ctx.font = "700 48px 'Microsoft YaHei',sans-serif";
+    ctx.fillText(fitText(project.title || "未命名歌曲", 670), 1055, 170);
+    ctx.fillStyle = "rgba(221,233,250,.77)";
+    ctx.font = "25px 'Microsoft YaHei',sans-serif";
+    ctx.fillText(fitText(project.artist || "未填写主播", 665), 1058, 220);
+    ctx.fillStyle = "rgba(217,231,249,.57)";
+    ctx.font = "20px 'Microsoft YaHei',sans-serif";
+    ctx.fillText(fitText(project.album || "歌回切片", 670), 1058, 258);
+
+    const lines = sortedLyrics();
+    const selected = Math.max(0, activeIndex(lines, currentTime));
+    const center = project.lyricDisplay === "scroll" ? scrollCenterIndex(lines, currentTime) : selected;
+    const first = Math.floor(center);
+    const fraction = center - first;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(1030, 296, 730, 520);
+    ctx.clip();
+    if (!lines.length) {
+      ctx.fillStyle = "rgba(236,243,255,.74)";
+      ctx.font = "30px 'Microsoft YaHei',sans-serif";
+      ctx.fillText("导入歌词后，会在这里逐句浮现", 1058, 557);
+    } else {
+      for (let offset = -3; offset <= 3; offset++) {
+        const index = first + offset;
+        if (index < 0 || index >= lines.length) continue;
+        const line = lines[index];
+        const y = 555 + (offset - fraction) * 88;
+        const active = index === selected;
+        const edge = Math.max(0, Math.min(1, (y - 300) / 85, (817 - y) / 85));
+        const entering = active && project.lyricDisplay === "scroll" && selected > 0
+          ? Math.max(0, Math.min(1, center - selected + 1)) : 1;
+        ctx.globalAlpha = edge * (active ? entering : Math.max(.16, .52 - Math.abs(index - center) * .1));
+        ctx.fillStyle = active ? "#fffaf4" : "#d1dded";
+        ctx.font = (active ? "700 36px " : "500 29px ") + "'Microsoft YaHei',sans-serif";
+        ctx.fillText(fitText(line.text || "（空白歌词）", 650), 1058, y);
+        if (line.translation) {
+          ctx.fillStyle = active ? "#f0e3cf" : "#b9cbe1";
+          ctx.font = "20px 'Microsoft YaHei',sans-serif";
+          ctx.fillText(fitText(line.translation, 650), 1060, y + 30);
+        }
+      }
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+
+    const total = mediaEl && Number.isFinite(mediaEl.duration) ? mediaEl.duration : project.duration;
+    const progress = Math.min(1, currentTime / Math.max(total, 1));
+    ctx.fillStyle = "rgba(244,249,255,.40)";
+    ctx.fillRect(110, 946, 1700, 3);
+    ctx.fillStyle = "#f2d99f";
+    ctx.fillRect(110, 946, 1700 * progress, 3);
+    ctx.beginPath(); ctx.arc(110 + 1700 * progress, 947, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(238,246,255,.83)";
+    ctx.font = timeFont(20);
+    ctx.textAlign = "left"; ctx.fillText(formatTime(currentTime), 110, 922);
+    ctx.textAlign = "right"; ctx.fillText(formatTime(total), 1810, 922);
+
+    ctx.fillStyle = "rgba(255,250,244,.9)";
+    ctx.beginPath(); ctx.moveTo(876, 994); ctx.lineTo(854, 1008); ctx.lineTo(876, 1022); ctx.closePath(); ctx.fill();
+    ctx.fillRect(850, 995, 4, 27);
+    ctx.beginPath(); ctx.arc(960, 1008, 33, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#223657";
+    if (mediaEl && !mediaEl.paused) {
+      ctx.fillRect(951, 993, 6, 30); ctx.fillRect(964, 993, 6, 30);
+    } else {
+      ctx.beginPath(); ctx.moveTo(954, 991); ctx.lineTo(954, 1025); ctx.lineTo(975, 1008); ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = "rgba(255,250,244,.9)";
+    ctx.beginPath(); ctx.moveTo(1044, 994); ctx.lineTo(1066, 1008); ctx.lineTo(1044, 1022); ctx.closePath(); ctx.fill();
+    ctx.fillRect(1067, 995, 4, 27);
+    ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(238,246,255,.58)";
+    ctx.font = "18px 'Microsoft YaHei',sans-serif";
+    ctx.fillText(fitText(project.footer || "", 500), 110, 1022);
+  }
+
   function drawPreview() {
     const W = canvas.width;
     const H = canvas.height;
     const palette = themeColors();
     if (project.theme === "flow-player") {
       drawPlayerCanvas();
+      return;
+    }
+    if (project.theme === "vinyl-player") {
+      drawVinylCanvas();
       return;
     }
     if (project.theme === "rainy-night") {
@@ -1294,6 +1482,12 @@
       mediaURL = URL.createObjectURL(file);
       mediaEl.src = mediaURL;
       mediaEl.load();
+      if (kind === "video") sampleVinylBackground(mediaURL);
+      else {
+        vinylSampleToken++;
+        vinylPaletteStatus = "未导入视频时使用内置深蓝渐变。";
+        updateVinylBackgroundControls();
+      }
       el["media-name"].textContent = kind === "audio" ? file.name : "MP3、WAV 等格式";
       el["video-name"].textContent = kind === "video" ? file.name : "MP4、WebM 等格式";
       updateVisualControls();
@@ -1389,9 +1583,12 @@
     };
     const activeFrame = () => project.theme === "flow-player"
       ? { x: 94, y: 126, size: 560 }
-      : coverFrame;
+      : project.theme === "vinyl-player" ? vinylTheme.LABEL : coverFrame;
     const insideCover = point => {
       const frame = activeFrame();
+      if (project.theme === "vinyl-player") {
+        return Math.hypot(point.x - frame.cx, point.y - frame.cy) <= frame.radius;
+      }
       return point.x >= frame.x && point.x <= frame.x + frame.size &&
         point.y >= frame.y && point.y <= frame.y + frame.size;
     };
@@ -1403,7 +1600,9 @@
       videoDrag = {
         id: event.pointerId, startX: point.x, startY: point.y,
         originX: project.videoTransform.x, originY: project.videoTransform.y,
-        scale: project.videoTransform.scale, frameSize: frame.size
+        scale: project.videoTransform.scale, frameSize: frame.size,
+        angle: project.theme === "vinyl-player"
+          ? vinylTheme.rotationAngle(currentTime, project.vinylSecondsPerTurn) : 0
       };
       canvas.setPointerCapture(event.pointerId);
       canvas.classList.add("is-panning");
@@ -1417,9 +1616,14 @@
       }
       if (!videoDrag || videoDrag.id !== event.pointerId) return;
       const point = canvasPoint(event);
+      const screenX = (point.x - videoDrag.startX) / videoDrag.frameSize;
+      const screenY = (point.y - videoDrag.startY) / videoDrag.frameSize;
+      const angle = videoDrag.angle;
+      const localX = screenX * Math.cos(angle) + screenY * Math.sin(angle);
+      const localY = -screenX * Math.sin(angle) + screenY * Math.cos(angle);
       applyVideoTransform({
-        x: videoDrag.originX + (point.x - videoDrag.startX) / videoDrag.frameSize,
-        y: videoDrag.originY + (point.y - videoDrag.startY) / videoDrag.frameSize,
+        x: videoDrag.originX + localX,
+        y: videoDrag.originY + localY,
         scale: videoDrag.scale
       });
     });
@@ -1441,6 +1645,63 @@
     }, { passive: false });
   }
 
+  function bindVinylBackground() {
+    el["vinyl-speed"].addEventListener("input", () => {
+      project.vinylSecondsPerTurn = vinylTheme.normalizeSecondsPerTurn(el["vinyl-speed"].value);
+      el["vinyl-speed-value"].textContent = `${project.vinylSecondsPerTurn} 秒/圈`;
+      drawPreview();
+    });
+    el["vinyl-speed"].addEventListener("change", saveDraft);
+    el["vinyl-bg-video"].addEventListener("click", () => {
+      project.vinylBackgroundMode = "video-color";
+      updateVinylBackgroundControls();
+      saveDraft();
+      drawPreview();
+    });
+    el["vinyl-bg-image"].addEventListener("click", () => {
+      project.vinylBackgroundMode = "custom-image";
+      updateVinylBackgroundControls();
+      saveDraft();
+      drawPreview();
+    });
+    el["vinyl-bg-input"].addEventListener("change", async () => {
+      const file = el["vinyl-bg-input"].files?.[0];
+      if (!file) return;
+      if (!/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > 20_000_000) {
+        return status("请导入 20 MB 以内的 PNG、JPG 或 WebP 背景图片。", true);
+      }
+      let bitmap = null;
+      try {
+        bitmap = await createImageBitmap(file);
+        const prepared = document.createElement("canvas");
+        prepared.width = 1920; prepared.height = 1080;
+        const target = prepared.getContext("2d", { alpha: false });
+        const scale = Math.max(1920 / bitmap.width, 1080 / bitmap.height);
+        const cropW = 1920 / scale, cropH = 1080 / scale;
+        target.drawImage(bitmap, (bitmap.width - cropW) / 2, (bitmap.height - cropH) / 2,
+          cropW, cropH, 0, 0, 1920, 1080);
+        project.vinylBackgroundData = prepared.toDataURL("image/jpeg", .86);
+        project.vinylBackgroundMode = "custom-image";
+        loadVinylBackgroundData(project.vinylBackgroundData);
+        updateVinylBackgroundControls();
+        saveDraft();
+        status("已导入黑胶主题背景图片。");
+      } catch (_) {
+        status("背景图片读取失败，已保留原来的背景。", true);
+      } finally {
+        if (bitmap) bitmap.close();
+        el["vinyl-bg-input"].value = "";
+      }
+    });
+    el["vinyl-bg-remove"].addEventListener("click", () => {
+      project.vinylBackgroundData = "";
+      project.vinylBackgroundMode = "video-color";
+      loadVinylBackgroundData("");
+      updateVinylBackgroundControls();
+      saveDraft();
+    });
+  }
+
   function bindControls() {
     el["theme-paper"].addEventListener("click", () => {
       project.theme = "paper";
@@ -1456,6 +1717,12 @@
     });
     el["theme-player"].addEventListener("click", () => {
       project.theme = "flow-player";
+      updateThemeControls();
+      saveDraft();
+      drawPreview();
+    });
+    el["theme-vinyl"].addEventListener("click", () => {
+      project.theme = "vinyl-player";
       updateThemeControls();
       saveDraft();
       drawPreview();
@@ -1509,6 +1776,7 @@
         try {
           project = normalizeProject(JSON.parse(String(reader.result)));
           loadCoverData(project.coverData);
+          loadVinylBackgroundData(project.vinylBackgroundData);
           updateThemeControls();
           updateVisualControls();
           updateLyricDisplayButtons();
@@ -1529,8 +1797,10 @@
   bindMetadata();
   bindMedia();
   bindVideoFraming();
+  bindVinylBackground();
   bindControls();
   loadCoverData(project.coverData);
+  loadVinylBackgroundData(project.vinylBackgroundData);
   updateThemeControls();
   updateVisualControls();
   updateLyricDisplayButtons();

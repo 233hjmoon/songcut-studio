@@ -6,7 +6,7 @@ import bisect
 import math
 from pathlib import Path
 
-from renderer import THEME_PALETTES, fit_text, font, format_time, parse_time, scroll_center_index
+from renderer import THEME_PALETTES, fit_text, font, format_time, parse_time, scroll_center_index, vinyl_seconds_per_turn
 
 
 ASS_HEADER = """[Script Info]
@@ -80,6 +80,8 @@ def _rect(events: list[str], start_cs: int, end_cs: int, x: int, y: int,
 def _add_progress(events: list[str], duration_cs: int, duration: float, theme: str, colors: dict) -> None:
     if theme == "flow-player":
         bars = [(96, 820, 558, 3), (96, 950, 558, 4)]
+    elif theme == "vinyl-player":
+        bars = [(110, 946, 1700, 3)]
     else:
         bars = [(92, 1044, 643, 3)]
     for x, y, width, height in bars:
@@ -100,6 +102,11 @@ def _add_progress(events: list[str], duration_cs: int, duration: float, theme: s
                    font_name="Consolas", layer=3)
             _label(events, start_cs, end_cs, "−" + format_time(duration - second),
                    654, 780, 18, colors["muted"], font_name="Consolas", alignment=9, layer=3)
+        elif theme == "vinyl-player":
+            _label(events, start_cs, end_cs, format_time(second), 110, 902, 20, colors["muted"],
+                   font_name="Consolas", layer=3)
+            _label(events, start_cs, end_cs, format_time(duration), 1810, 902, 20, colors["muted"],
+                   font_name="Consolas", alignment=9, layer=3)
         else:
             _label(events, start_cs, end_cs, format_time(second) + " / " + format_time(duration),
                    284, 1007, 22, colors["muted"], font_name="Consolas", layer=3)
@@ -173,6 +180,35 @@ def _add_player_lyrics(events: list[str], start_cs: int, end_cs: int, lyrics: li
                    blur=0 if active else min(5, distance * 1.35))
 
 
+def _add_vinyl_lyrics(events: list[str], start_cs: int, end_cs: int, lyrics: list[dict],
+                      times: list[float], seconds: float, colors: dict, scrolling: bool) -> None:
+    selected = max(0, bisect.bisect_right(times, seconds + .02) - 1)
+    center = scroll_center_index(lyrics, seconds) if scrolling else float(selected)
+    first = math.floor(center)
+    fraction = center - first
+    for offset in range(-3, 4):
+        index = first + offset
+        if not 0 <= index < len(lyrics):
+            continue
+        y = round(555 + (offset - fraction) * 88)
+        if not 300 <= y <= 817:
+            continue
+        active = index == selected
+        edge = max(0.0, min(1.0, (y - 300) / 85, (817 - y) / 85))
+        entering = max(0.0, min(1.0, center - selected + 1)) if active and scrolling and selected > 0 else 1.0
+        alpha = edge * (entering if active else max(.16, .52 - abs(index - center) * .1))
+        size = 36 if active else 29
+        line = lyrics[index]
+        content = fit_text(line.get("text") or "（空白歌词）",
+                           font("sans_bold" if active else "sans", size), 650)
+        _label(events, start_cs, end_cs, content, 1058, y - size,
+               size, colors["active_text"] if active else colors["idle_text"], alpha, bold=active)
+        if line.get("translation"):
+            translation = fit_text(line["translation"], font("sans", 20), 650)
+            _label(events, start_cs, end_cs, translation, 1060, y + 10, 20,
+                   colors["active_translation"] if active else colors["idle_translation"], alpha)
+
+
 def write_ass(project: dict, duration: float, path: Path) -> Path:
     """Write theme-matched timed lyrics and playback indicators as one ASS file."""
     path = Path(path)
@@ -187,6 +223,8 @@ def write_ass(project: dict, duration: float, path: Path) -> Path:
     if not lyrics:
         if theme == "flow-player":
             _label(events, 0, duration_cs, "导入歌词后，会在这里逐句浮现", 810, 480, 34, colors["empty"])
+        elif theme == "vinyl-player":
+            _label(events, 0, duration_cs, "导入歌词后，会在这里逐句浮现", 1058, 527, 30, colors["empty"])
         else:
             _label(events, 0, duration_cs, "歌词会按照时间出现在这里", 842, 250, 30, colors["empty"])
     else:
@@ -205,6 +243,8 @@ def write_ass(project: dict, duration: float, path: Path) -> Path:
             seconds = start_cs / 100
             if theme == "flow-player":
                 _add_player_lyrics(events, start_cs, end_cs, lyrics, times, seconds, colors, scrolling)
+            elif theme == "vinyl-player":
+                _add_vinyl_lyrics(events, start_cs, end_cs, lyrics, times, seconds, colors, scrolling)
             else:
                 _add_paper_lyrics(events, start_cs, end_cs, lyrics, times, seconds, colors, scrolling)
     path.write_text(ASS_HEADER + "\n".join(events) + "\n", encoding="utf-8")
@@ -230,6 +270,18 @@ def direct_video_command(job: dict, ffmpeg: str) -> list[str]:
             f"[sharp_src]scale={width}:{height}:flags=lanczos,setsar=1,"
             f"crop=643:643:{crop_x}:{crop_y},scale=560:560:flags=lanczos[sharp];"
             "[ambient][sharp]overlay=94:126[backdrop];"
+            "[backdrop][art]overlay=0:0:shortest=1:format=auto[layout];"
+            "[layout]ass=lyrics.ass,format=yuv420p[v]"
+        )
+    elif job.get("project", {}).get("theme") == "vinyl-player":
+        period = vinyl_seconds_per_turn(job.get("project", {}).get("vinylSecondsPerTurn"))
+        graph = (
+            "[0:v]format=rgba[art];"
+            f"[1:v]tpad=stop_mode=clone:stop_duration={job['duration']:.6f},fps=60,"
+            f"scale={width}:{height}:flags=lanczos,setsar=1,"
+            f"crop=643:643:{crop_x}:{crop_y},scale=300:300:flags=lanczos,setpts=PTS-STARTPTS,"
+            f"rotate=2*PI*t/{period:g}:ow=300:oh=300:fillcolor=black,"
+            "pad=1920:1080:400:360:black[backdrop];"
             "[backdrop][art]overlay=0:0:shortest=1:format=auto[layout];"
             "[layout]ass=lyrics.ass,format=yuv420p[v]"
         )

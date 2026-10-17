@@ -19,6 +19,14 @@ FONT_FILES = {
     "time": "consolab.ttf",
 }
 THEME_PALETTES = {
+    "vinyl-player": {
+        "background": "#102553", "cover_start": (30, 55, 101), "cover_middle": (156, 85, 75),
+        "cover_end": (228, 196, 156), "cover_ring": (255, 244, 224, 165),
+        "cover_text": "#fff7e9", "title": "#fffaf4", "artist": "#d7e2f4",
+        "album": "#c7d7f2", "muted": "#c7d5ed", "empty": "#d7e4f2",
+        "progress": "#f2d99f", "active_text": "#fffaf4", "idle_text": "#c9d5e7",
+        "active_translation": "#f0e3cf", "idle_translation": "#b9cbe1",
+    },
     "paper": {
         "background": "#e8e6df", "grid": "#d8d7d2", "panel": (248, 247, 241, 184), "panel_line": "#c5c6c1",
         "heading": "#263334", "album": "#34434b", "title": "#222828", "artist": "#687475", "tags": "#51626a",
@@ -84,6 +92,14 @@ def format_time(seconds: float) -> str:
     return (f"{hours:02d}:" if hours else "") + f"{minutes:02d}:{second:02d}"
 
 
+def vinyl_seconds_per_turn(value) -> float:
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return 40.0
+    return min(80.0, max(5.0, seconds)) if math.isfinite(seconds) and seconds > 0 else 40.0
+
+
 def fit_text(text: str, chosen_font: ImageFont.FreeTypeFont, width: int) -> str:
     text = str(text or "")
     if chosen_font.getlength(text) <= width:
@@ -126,7 +142,8 @@ def placeholder_art(theme: str = "paper") -> Image.Image:
         radius = round(643 * (0.16 + index * 0.14))
         cx, cy = round(643 * 0.5), round(643 * 0.55)
         draw.ellipse((cx-radius, cy-radius, cx+radius, cy+radius), outline=colors["cover_ring"], width=6)
-    label(draw, (321, 335), "COVER ART", font("english", 32), colors["cover_text"], anchor="ms")
+    if theme != "vinyl-player":
+        label(draw, (321, 335), "COVER ART", font("english", 32), colors["cover_text"], anchor="ms")
     return art
 
 
@@ -153,15 +170,18 @@ def scroll_center_index(lyrics: list[dict], seconds: float) -> float:
 
 
 class FrameRenderer:
-    def __init__(self, project: dict, duration: float, use_video: bool):
+    def __init__(self, project: dict, duration: float, use_video: bool, *, external_vinyl_art: bool = False):
         self.project = project
         self.duration = duration
         self.use_video = use_video
+        self.external_vinyl_art = external_vinyl_art
         self.lyrics = sorted(project.get("lyrics", []), key=lambda line: parse_time(line.get("time", 0)))
         self.colors = THEME_PALETTES.get(project.get("theme"), THEME_PALETTES["paper"])
         self.base = self._make_base()
 
     def _make_base(self) -> Image.Image:
+        if self.project.get("theme") == "vinyl-player":
+            return self._make_vinyl_base()
         if self.project.get("theme") == "flow-player":
             return self._make_player_base()
         image = Image.new("RGBA", (WIDTH, HEIGHT), self.colors["background"])
@@ -210,6 +230,78 @@ class FrameRenderer:
         draw.line((842, 1000, 1810, 1000), fill=self.colors["line"], width=1)
         label(draw, (842, 1038), self.project.get("description") or self.project.get("album") or "", font("sans_bold", 23), self.colors["muted"], 630)
         label(draw, (1810, 1038), self.project.get("footer") or "", font("english", 20), self.colors["muted"], 320, anchor="rs")
+        return image
+
+    def _make_vinyl_base(self) -> Image.Image:
+        colors = self.project.get("vinylBackgroundColors")
+        if not (isinstance(colors, list) and len(colors) == 3 and all(
+                isinstance(value, str) and len(value) == 7 and value.startswith("#") for value in colors)):
+            colors = ["#102553", "#183d79", "#5b71bd"]
+        image = None
+        if self.project.get("vinylBackgroundMode") == "custom-image":
+            data_uri = self.project.get("vinylBackgroundData", "")
+            if data_uri and "," in data_uri:
+                try:
+                    raw = base64.b64decode(data_uri.split(",", 1)[1], validate=True)
+                    with Image.open(io.BytesIO(raw)) as source:
+                        image = ImageOps.fit(source.convert("RGBA"), (WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+                    image = Image.alpha_composite(image, Image.new("RGBA", (WIDTH, HEIGHT), (5, 13, 29, 59)))
+                except (ValueError, OSError):
+                    image = None
+        if image is None:
+            stops = [ImageColor.getrgb(value) for value in colors]
+            low = Image.new("RGBA", (480, 270))
+            pixels = low.load()
+            for y in range(270):
+                for x in range(480):
+                    position = ((x / 479) * WIDTH * WIDTH + (y / 269) * HEIGHT * HEIGHT) / (WIDTH * WIDTH + HEIGHT * HEIGHT)
+                    if position <= .56:
+                        first, second, part = stops[0], stops[1], position / .56
+                    else:
+                        first, second, part = stops[1], stops[2], (position - .56) / .44
+                    pixels[x, y] = tuple(round(a + (b - a) * part) for a, b in zip(first, second)) + (255,)
+            image = low.resize((WIDTH, HEIGHT), Image.Resampling.BILINEAR)
+
+        disc = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+        d = ImageDraw.Draw(disc)
+        d.ellipse((294, 254, 806, 766), fill=(3, 8, 19, 84))
+        d.ellipse((303, 263, 797, 757), fill="#111724")
+        d.ellipse((310, 270, 790, 750), fill="#10141d")
+        for index in range(47):
+            radius = round(166 + index * 1.62)
+            d.ellipse((550-radius, 510-radius, 550+radius, 510+radius),
+                      outline=(167, 191, 226, 26 if index % 4 == 0 else 12), width=1)
+        image.alpha_composite(disc)
+        art = cover_image(self.project.get("coverData", ""))
+        if art is None:
+            art = placeholder_art("vinyl-player")
+        art = art.resize((300, 300), Image.Resampling.LANCZOS)
+        self._vinyl_art = art
+        mask = Image.new("L", (300, 300), 0)
+        ImageDraw.Draw(mask).ellipse((0, 0, 299, 299), fill=255)
+        if self.use_video or self.external_vinyl_art:
+            transparent = Image.new("RGBA", (300, 300), (0, 0, 0, 0))
+            image.paste(transparent, (400, 360), mask)
+        else:
+            image.paste(art, (400, 360), mask)
+        draw = ImageDraw.Draw(image)
+        draw.ellipse((399, 359, 701, 661), outline=(241, 230, 208, 188), width=5)
+        draw.line(((448, 185), (610, 300), (735, 327)), fill="#e7e9ed", width=17, joint="curve")
+        draw.ellipse((430, 167, 466, 203), fill="#dce1e9")
+        draw.ellipse((440, 177, 456, 193), fill="#1c2536")
+        draw.rectangle((728, 314, 768, 341), fill="#f6f7f8")
+        label(draw, (1055, 170), self.project.get("title") or "未命名歌曲", font("sans_bold", 48), self.colors["title"], 670)
+        label(draw, (1058, 220), self.project.get("artist") or "未填写主播", font("sans", 25), self.colors["artist"], 665)
+        label(draw, (1058, 258), self.project.get("album") or "歌回切片", font("sans", 20), self.colors["album"], 670)
+        draw.rectangle((110, 946, 1810, 949), fill=(244, 249, 255, 102))
+        draw.polygon(((876, 994), (854, 1008), (876, 1022)), fill=(255, 250, 244, 230))
+        draw.rectangle((850, 995, 854, 1022), fill=(255, 250, 244, 230))
+        draw.ellipse((927, 975, 993, 1041), fill="#fffaf4")
+        draw.rectangle((950, 993, 957, 1023), fill="#223657")
+        draw.rectangle((964, 993, 971, 1023), fill="#223657")
+        draw.polygon(((1044, 994), (1066, 1008), (1044, 1022)), fill=(255, 250, 244, 230))
+        draw.rectangle((1067, 995, 1071, 1022), fill=(255, 250, 244, 230))
+        label(draw, (110, 1022), self.project.get("footer") or "", font("sans", 18), (238, 246, 255, 148), 500)
         return image
 
     def _make_player_base(self) -> Image.Image:
@@ -269,6 +361,23 @@ class FrameRenderer:
     def render(self, seconds: float) -> Image.Image:
         image = self.base.copy()
         draw = ImageDraw.Draw(image)
+        if self.project.get("theme") == "vinyl-player":
+            if not self.use_video and not self.external_vinyl_art:
+                period = vinyl_seconds_per_turn(self.project.get("vinylSecondsPerTurn"))
+                degrees = -360 * ((max(0, seconds) % period) / period)
+                rotated = self._vinyl_art.rotate(degrees, resample=Image.Resampling.BICUBIC)
+                mask = Image.new("L", (300, 300), 0)
+                ImageDraw.Draw(mask).ellipse((3, 3, 296, 296), fill=255)
+                image.paste(rotated, (400, 360), mask)
+                draw = ImageDraw.Draw(image)
+            progress = max(0, min(1, seconds / max(self.duration, 1)))
+            draw.rectangle((110, 946, 110 + round(1700 * progress), 949), fill=self.colors["progress"])
+            x = 110 + round(1700 * progress)
+            draw.ellipse((x - 7, 940, x + 7, 954), fill=self.colors["progress"])
+            label(draw, (110, 922), format_time(seconds), font("time", 20), self.colors["muted"])
+            label(draw, (1810, 922), format_time(self.duration), font("time", 20), self.colors["muted"], anchor="rs")
+            self._draw_vinyl_lyrics(image, seconds)
+            return image
         if self.project.get("theme") == "flow-player":
             progress = max(0, min(1, seconds / max(self.duration, 1)))
             draw.rectangle((96, 820, 96 + round(558 * progress), 823), fill=(255, 255, 255, 245))
@@ -308,6 +417,35 @@ class FrameRenderer:
                     label(draw, (1000, y + 32), line["translation"], font("serif", 20), self.colors["active_translation"] if active else self.colors["idle_translation"], 760)
                 draw.line((842, y + 55, 1810, y + 55), fill=self.colors["lyric_line"], width=1)
         return image
+
+    def _draw_vinyl_lyrics(self, image: Image.Image, seconds: float) -> None:
+        draw = ImageDraw.Draw(image)
+        if not self.lyrics:
+            label(draw, (1058, 557), "导入歌词后，会在这里逐句浮现", font("sans", 30), self.colors["empty"])
+            return
+        selected = max(0, sum(parse_time(line.get("time", 0)) <= seconds + .02 for line in self.lyrics) - 1)
+        scrolling = self.project.get("lyricDisplay") == "scroll"
+        center = scroll_center_index(self.lyrics, seconds) if scrolling else float(selected)
+        first = math.floor(center)
+        fraction = center - first
+        for offset in range(-3, 4):
+            index = first + offset
+            if not 0 <= index < len(self.lyrics):
+                continue
+            line = self.lyrics[index]
+            y = round(555 + (offset - fraction) * 88)
+            if not 300 <= y <= 817:
+                continue
+            active = index == selected
+            edge = max(0, min(1, (y - 300) / 85, (817 - y) / 85))
+            entering = max(0, min(1, center - selected + 1)) if active and scrolling and selected > 0 else 1
+            alpha = round(255 * edge * (entering if active else max(.16, .52 - abs(index - center) * .1)))
+            size = 36 if active else 29
+            color = ImageColor.getrgb(self.colors["active_text"] if active else self.colors["idle_text"])
+            label(draw, (1058, y), line.get("text") or "（空白歌词）", font("sans_bold" if active else "sans", size), (*color, alpha), 650)
+            if line.get("translation"):
+                tone = ImageColor.getrgb(self.colors["active_translation"] if active else self.colors["idle_translation"])
+                label(draw, (1060, y + 30), line["translation"], font("sans", 20), (*tone, alpha), 650)
 
     def _draw_player_lyrics(self, image: Image.Image, seconds: float) -> None:
         if not self.lyrics:

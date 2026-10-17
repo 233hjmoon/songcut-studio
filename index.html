@@ -11,7 +11,7 @@
   <header class="topbar">
     <div class="brand"><span class="brand-mark">◉</span><div><strong>歌切制作台</strong><small>LYRIC VIDEO STUDIO</small></div></div>
     <div class="top-actions">
-      <div class="theme-picker"><span>主题</span><div class="theme-switch" role="group" aria-label="制作台主题"><button id="theme-paper" type="button" aria-pressed="true">暖纸唱片</button><button id="theme-rainy" type="button" aria-pressed="false">雨后便利店</button><button id="theme-player" type="button" aria-pressed="false">流光播放器</button></div></div>
+      <div class="theme-picker"><span>主题</span><div class="theme-switch" role="group" aria-label="制作台主题"><button id="theme-paper" type="button" aria-pressed="true">暖纸唱片</button><button id="theme-rainy" type="button" aria-pressed="false">雨后便利店</button><button id="theme-player" type="button" aria-pressed="false">流光播放器</button><button id="theme-vinyl" type="button" aria-pressed="false">黑胶歌词</button></div></div>
       <label class="button ghost" for="project-import">导入 JSON</label>
       <input id="project-import" type="file" accept=".json,application/json" hidden>
       <button id="project-save" class="button ghost" type="button">保存 JSON</button>
@@ -64,6 +64,22 @@
           </div>
           <p id="visual-help" class="field-note">导入视频后，可在预览中的方形画面上拖动，并用滑杆或鼠标滚轮缩放。</p>
         </div>
+        <div id="vinyl-background-controls" class="vinyl-background-controls hidden">
+          <div class="visual-controls-heading"><strong>黑胶主题背景</strong><span>仅在工作台设置</span></div>
+          <div class="vinyl-background-switch" role="group" aria-label="黑胶主题背景来源">
+            <button id="vinyl-bg-video" type="button" aria-pressed="true">视频取色渐变</button>
+            <button id="vinyl-bg-image" type="button" aria-pressed="false">自定义图片</button>
+          </div>
+          <label class="button ghost vinyl-background-upload" for="vinyl-bg-input">＋ 导入背景图片</label>
+          <input id="vinyl-bg-input" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+          <button id="vinyl-bg-remove" class="remove-cover" type="button" disabled>移除背景图片</button>
+          <p id="vinyl-bg-status" class="field-note">未导入视频时使用内置深蓝渐变。</p>
+          <div class="vinyl-speed-control">
+            <label for="vinyl-speed">唱片转速 <output id="vinyl-speed-value" for="vinyl-speed">40 秒/圈</output></label>
+            <input id="vinyl-speed" type="range" min="5" max="80" step="1" value="40" aria-label="唱片每圈所需秒数">
+            <small>仅播放时转动；数值越大，转得越慢。</small>
+          </div>
+        </div>
       </section>
 
       <section class="editor-section">
@@ -107,6 +123,7 @@
   <script src="video-frame.js"></script>
   <script src="export-timeline.js"></script>
   <script src="recording-export.js"></script>
+  <script src="vinyl-theme.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
