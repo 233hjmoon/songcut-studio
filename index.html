@@ -27,7 +27,7 @@
       <div class="canvas-frame"><canvas id="preview" width="1920" height="1080" aria-label="歌词视频画面预览"></canvas></div>
       <div class="transport">
         <button id="prev-line" type="button" title="上一句" aria-label="上一句">⟵</button>
-        <button id="play-toggle" class="play-button" type="button" aria-label="播放">▶</button>
+        <button id="play-toggle" class="play-button" type="button" aria-label="播放"><svg class="transport-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6.8c0-1.1 1.2-1.7 2.2-1.1l8.1 5.1a1.4 1.4 0 0 1 0 2.4l-8.1 5.1A1.4 1.4 0 0 1 8 17.2z"/></svg></button>
         <button id="next-line" type="button" title="下一句" aria-label="下一句">⟶</button>
         <span id="time-readout" class="time-readout">00:00 / 03:48</span>
         <input id="seek" type="range" min="0" max="228" step="0.05" value="0" aria-label="播放进度">
@@ -107,8 +107,15 @@
         </div>
         <div class="lyrics-file-import">
           <label class="button ghost" for="lyrics-file-input">导入 TXT / LRC 文件</label>
+          <button id="clear-lyrics" class="button ghost clear-lyrics" type="button" disabled>清空歌词</button>
           <input id="lyrics-file-input" type="file" accept=".txt,.lrc,text/plain" hidden>
           <span id="lyrics-file-name">支持 [00:12.50]（歌词）和普通 LRC；导入时追加到现有歌词。</span>
+        </div>
+        <div class="lyric-offset-control">
+          <label for="lyric-offset">整体对轴 <span>秒</span></label>
+          <input id="lyric-offset" type="number" min="-3600" max="3600" step="0.01" value="0" aria-label="歌词整体前移或后移秒数">
+          <button id="apply-lyric-offset" class="button ghost" type="button" disabled>应用偏移</button>
+          <small>正数后移，负数前移；低于 00:00 的时间会归到 00:00。</small>
         </div>
         <div id="lyric-list" class="lyric-list"></div>
         <button id="add-line" class="button add-line" type="button">＋ 添加歌词节点</button>

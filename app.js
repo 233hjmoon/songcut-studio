@@ -53,7 +53,7 @@
     "project-import", "project-save", "export-png", "export-mode", "export-video", "theme-paper", "theme-rainy", "theme-player", "theme-vinyl", "media-input",
     "video-input", "video-name", "cover-input", "media-name", "cover-name", "song-title", "song-artist",
     "song-album", "song-duration", "song-tags", "song-footer", "song-description",
-    "lyric-list", "line-count", "add-line", "lrc-text", "lrc-import",
+    "lyric-list", "line-count", "add-line", "clear-lyrics", "lyric-offset", "apply-lyric-offset", "lrc-text", "lrc-import",
     "lyric-style-timeline", "lyric-style-scroll",
     "lyrics-file-input", "lyrics-file-name", "prev-line",
     "play-toggle", "next-line", "time-readout", "seek", "save-state",
@@ -277,7 +277,7 @@
     const sec = Math.floor(safe % 60);
     const stamp = (hours ? String(hours).padStart(2, "0") + ":" : "") +
       String(minutes).padStart(2, "0") + ":" + String(sec).padStart(2, "0");
-    return precise ? stamp + "." + String(Math.floor((safe % 1) * 100)).padStart(2, "0") : stamp;
+    return precise ? stamp + "." + String(Math.floor((safe % 1) * 100 + 1e-7)).padStart(2, "0") : stamp;
   }
 
   function timeFont(size) {
@@ -426,8 +426,14 @@
     el["time-readout"].textContent = formatTime(currentTime) + " / " + formatTime(duration);
     el.seek.max = String(Math.max(1, duration));
     el.seek.value = String(Math.min(currentTime, duration));
-    el["play-toggle"].textContent = mediaEl && !mediaEl.paused ? "Ⅱ" : "▶";
-    el["play-toggle"].setAttribute("aria-label", mediaEl && !mediaEl.paused ? "暂停" : "播放");
+    const isPlaying = mediaEl && !mediaEl.paused;
+    const playLabel = isPlaying ? "暂停" : "播放";
+    if (el["play-toggle"].getAttribute("aria-label") !== playLabel) {
+      el["play-toggle"].innerHTML = isPlaying
+        ? '<svg class="transport-icon pause-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.7" y="5.8" width="4.2" height="12.4" rx="2.1"/><rect x="13.1" y="5.8" width="4.2" height="12.4" rx="2.1"/></svg>'
+        : '<svg class="transport-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6.8c0-1.1 1.2-1.7 2.2-1.1l8.1 5.1a1.4 1.4 0 0 1 0 2.4l-8.1 5.1A1.4 1.4 0 0 1 8 17.2z"/></svg>';
+      el["play-toggle"].setAttribute("aria-label", playLabel);
+    }
     const lines = sortedLyrics();
     const active = lines[activeIndex(lines, currentTime)]?.id ?? null;
     if (active !== lastActiveId) {
@@ -506,6 +512,8 @@
     list.replaceChildren();
     const lines = sortedLyrics();
     el["line-count"].textContent = lines.length + " 行";
+    el["clear-lyrics"].disabled = lines.length === 0;
+    el["apply-lyric-offset"].disabled = lines.length === 0;
     if (!lines.length) {
       const empty = document.createElement("div");
       empty.className = "lyric-empty";
@@ -578,6 +586,40 @@
     const inputs = [...el["lyric-list"].querySelectorAll(".lyric-row input")];
     const textInput = inputs[inputs.length - 2];
     if (textInput) textInput.focus();
+  }
+
+  function clearLyrics() {
+    const count = project.lyrics.length;
+    if (!count) return;
+    project.lyrics = [];
+    el["lyrics-file-name"].textContent = "支持 [00:12.50]（歌词）和普通 LRC；导入时追加到现有歌词。";
+    saveDraft();
+    renderLyricEditor();
+    drawPreview();
+    status(`已清空 ${count} 句歌词。`);
+  }
+
+  function applyLyricOffset() {
+    const rawOffset = el["lyric-offset"].value.trim();
+    const offset = Number(rawOffset);
+    if (!rawOffset || !Number.isFinite(offset) || !el["lyric-offset"].checkValidity()) {
+      return status("请输入 -3600 到 3600 秒之间的有效偏移量。", true);
+    }
+    if (offset === 0) return status("偏移量为 0 秒，歌词时间没有变化。", true);
+    const count = project.lyrics.length;
+    if (!count) return status("请先导入或添加歌词。", true);
+    let clampedCount = 0;
+    project.lyrics = project.lyrics.map(line => {
+      const shiftedCentiseconds = Math.round((parseTime(line.time) + offset) * 100);
+      if (shiftedCentiseconds < 0) clampedCount++;
+      return { ...line, time: formatTime(Math.max(0, shiftedCentiseconds) / 100, true) };
+    });
+    saveDraft();
+    renderLyricEditor();
+    drawPreview();
+    const action = offset > 0 ? "后移" : "前移";
+    const note = clampedCount ? `，其中 ${clampedCount} 句已归到 00:00` : "";
+    status(`已将 ${count} 句歌词整体${action} ${Math.abs(offset)} 秒${note}。`);
   }
 
   function appendLyrics(lines) {
@@ -1276,9 +1318,12 @@
     ctx.beginPath(); ctx.arc(960, 1008, 33, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#223657";
     if (mediaEl && !mediaEl.paused) {
-      ctx.fillRect(951, 993, 6, 30); ctx.fillRect(964, 993, 6, 30);
+      ctx.beginPath(); ctx.roundRect(951, 993, 7, 30, 3.5); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(963, 993, 7, 30, 3.5); ctx.fill();
     } else {
-      ctx.beginPath(); ctx.moveTo(954, 991); ctx.lineTo(954, 1025); ctx.lineTo(975, 1008); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(954, 993); ctx.quadraticCurveTo(954, 990, 957, 992);
+      ctx.lineTo(973, 1005); ctx.quadraticCurveTo(977, 1008, 973, 1011);
+      ctx.lineTo(957, 1024); ctx.quadraticCurveTo(954, 1026, 954, 1023); ctx.closePath(); ctx.fill();
     }
     ctx.fillStyle = "rgba(255,250,244,.9)";
     ctx.beginPath(); ctx.moveTo(1044, 994); ctx.lineTo(1066, 1008); ctx.lineTo(1044, 1022); ctx.closePath(); ctx.fill();
@@ -1703,6 +1748,8 @@
   }
 
   function bindControls() {
+    el["clear-lyrics"].addEventListener("click", clearLyrics);
+    el["apply-lyric-offset"].addEventListener("click", applyLyricOffset);
     el["theme-paper"].addEventListener("click", () => {
       project.theme = "paper";
       updateThemeControls();
