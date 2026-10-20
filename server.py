@@ -209,6 +209,14 @@ def cancel_job(job: dict) -> None:
         clean_job_files(job)
 
 
+def shutdown_studio(server: ThreadingHTTPServer) -> None:
+    with JOBS_LOCK:
+        jobs = list(JOBS.values())
+    for job in jobs:
+        cancel_job(job)
+    server.shutdown()
+
+
 def attach_process(job: dict, process: subprocess.Popen) -> None:
     with job["lock"]:
         job["process"] = process
@@ -486,6 +494,12 @@ class Handler(SimpleHTTPRequestHandler):
             return self._send_json(403, {"error": "只允许本机页面调用合成服务"})
         parts = urlparse(self.path).path.strip("/").split("/")
         try:
+            if parts == ["api", "shutdown"]:
+                if origin not in {f"http://localhost:{port}", f"http://127.0.0.1:{port}"}:
+                    return self._send_json(403, {"error": "只允许制作台页面关闭本机服务"})
+                self._send_json(200, {"state": "stopping"})
+                threading.Thread(target=shutdown_studio, args=(self.server,), daemon=True).start()
+                return
             if parts == ["api", "jobs"]:
                 return self._create_job()
             if parts == ["api", "recordings"]:

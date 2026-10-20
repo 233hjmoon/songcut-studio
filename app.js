@@ -50,7 +50,7 @@
     }
   };
   const ids = [
-    "project-import", "project-save", "export-png", "export-mode", "export-video", "theme-paper", "theme-rainy", "theme-player", "theme-vinyl", "media-input",
+    "project-import", "project-save", "export-png", "export-mode", "export-video", "shutdown-studio", "theme-paper", "theme-rainy", "theme-player", "theme-vinyl", "media-input",
     "video-input", "video-name", "cover-input", "media-name", "cover-name", "song-title", "song-artist",
     "song-album", "song-duration", "song-tags", "song-footer", "song-description",
     "lyric-list", "line-count", "add-line", "clear-lyrics", "lyric-offset", "apply-lyric-offset", "lrc-text", "lrc-import",
@@ -76,6 +76,7 @@
       coverData: "",
       visualSource: "video",
       videoTransform: { x: 0, y: 0, scale: 1 },
+      coverTransform: { x: 0, y: 0, scale: 1 },
       lyrics: [],
       lyricDisplay: "timeline",
       vinylBackgroundMode: "video-color",
@@ -101,12 +102,14 @@
     if (typeof value.vinylBackgroundData === "string" && /^data:image\/(?:png|jpeg|webp);base64,/.test(value.vinylBackgroundData)) {
       base.vinylBackgroundData = value.vinylBackgroundData;
     }
-    if (value.videoTransform && typeof value.videoTransform === "object") {
-      for (const key of ["x", "y", "scale"]) {
-        const number = Number(value.videoTransform[key]);
-        if (Number.isFinite(number)) base.videoTransform[key] = number;
+    for (const transformKey of ["videoTransform", "coverTransform"]) {
+      if (value[transformKey] && typeof value[transformKey] === "object") {
+        for (const key of ["x", "y", "scale"]) {
+          const number = Number(value[transformKey][key]);
+          if (Number.isFinite(number)) base[transformKey][key] = number;
+        }
+        base[transformKey].scale = Math.min(3, Math.max(1, base[transformKey].scale));
       }
-      base.videoTransform.scale = Math.min(3, Math.max(1, base.videoTransform.scale));
     }
     const duration = Number(value.duration);
     if (Number.isFinite(duration) && duration > 0) base.duration = duration;
@@ -169,41 +172,46 @@
     updateVisualControls();
   }
 
-  function applyVideoTransform(next) {
-    if (video.videoWidth && video.videoHeight) {
-      const placement = getVideoPlacement(video.videoWidth, video.videoHeight, coverFrame.size, next);
-      project.videoTransform = { x: placement.x, y: placement.y, scale: placement.scale };
+  function applyVisualTransform(next) {
+    const useVideo = videoIsSelected();
+    const key = useVideo ? "videoTransform" : "coverTransform";
+    const width = useVideo ? video.videoWidth : coverImage?.naturalWidth;
+    const height = useVideo ? video.videoHeight : coverImage?.naturalHeight;
+    if (width && height) {
+      const placement = getVideoPlacement(width, height, coverFrame.size, next);
+      project[key] = { x: placement.x, y: placement.y, scale: placement.scale };
     } else {
-      project.videoTransform = {
+      project[key] = {
         x: Number.isFinite(Number(next.x)) ? Number(next.x) : 0,
         y: Number.isFinite(Number(next.y)) ? Number(next.y) : 0,
         scale: Math.min(3, Math.max(1, Number(next.scale) || 1))
       };
     }
-    el["video-zoom"].value = String(project.videoTransform.scale);
-    el["video-zoom-value"].textContent = Math.round(project.videoTransform.scale * 100) + "%";
+    el["video-zoom"].value = String(project[key].scale);
+    el["video-zoom-value"].textContent = Math.round(project[key].scale * 100) + "%";
     drawPreview();
   }
 
   function updateVisualControls() {
     const hasVideo = mediaKind === "video";
     const hasCover = !!project.coverData;
+    const coverSelected = project.visualSource === "cover" && hasCover;
+    const adjustable = videoIsSelected() || coverSelected;
+    const transform = videoIsSelected() ? project.videoTransform : project.coverTransform;
     el["visual-source-video"].disabled = !hasVideo;
     el["visual-source-cover"].disabled = !hasCover;
     el["remove-cover"].disabled = !hasCover;
     el["visual-source-video"].setAttribute("aria-pressed", String(videoIsSelected()));
-    el["visual-source-cover"].setAttribute("aria-pressed", String(!videoIsSelected() && hasCover));
-    el["video-zoom"].disabled = !videoIsSelected();
-    el["video-reset"].disabled = !videoIsSelected();
-    el["video-zoom"].value = String(project.videoTransform.scale);
-    el["video-zoom-value"].textContent = Math.round(project.videoTransform.scale * 100) + "%";
+    el["visual-source-cover"].setAttribute("aria-pressed", String(coverSelected));
+    el["video-zoom"].disabled = !adjustable;
+    el["video-reset"].disabled = !adjustable;
+    el["video-zoom"].value = String(transform.scale);
+    el["video-zoom-value"].textContent = Math.round(transform.scale * 100) + "%";
     const frameName = project.theme === "vinyl-player" ? "唱片中央的圆形画面" : "预览中的方形画面";
-    el["visual-help"].textContent = videoIsSelected()
-      ? `在${frameName}按住拖动；用滑杆或鼠标滚轮缩放。`
-      : hasCover && hasVideo ? "当前使用上传的封面；切回“视频画面”可以继续调整视频。"
-        : hasCover ? "当前使用上传的封面；导入视频后也可以切换画面。"
-        : `导入视频后，可在${frameName}上拖动，并用滑杆或鼠标滚轮缩放。`;
-    canvas.classList.toggle("can-pan", videoIsSelected());
+    el["visual-help"].textContent = adjustable
+      ? `在${frameName}按住拖动；图片刚好铺满时，先放大到 100% 以上再拖动。用滑杆或鼠标滚轮缩放。`
+      : `导入视频或封面后，可在${frameName}上拖动，并用滑杆或鼠标滚轮缩放。`;
+    canvas.classList.toggle("can-pan", adjustable);
   }
 
   function updateVinylBackgroundControls() {
@@ -377,14 +385,18 @@
   function saveDraft() {
     el["save-state"].textContent = "保存中";
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
-        el["save-state"].textContent = "已保存到本机";
-      } catch (_) {
-        el["save-state"].textContent = "存储空间不足";
-      }
-    }, 250);
+    saveTimer = setTimeout(persistDraft, 250);
+  }
+
+  function persistDraft() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
+      el["save-state"].textContent = "已保存到本机";
+      return true;
+    } catch (_) {
+      el["save-state"].textContent = "存储空间不足";
+      return false;
+    }
   }
 
   function updateMetadataFields() {
@@ -410,7 +422,8 @@
     image.onload = () => {
       if (project.coverData !== data) return;
       coverImage = image;
-      drawPreview();
+      if (project.visualSource === "cover") applyVisualTransform(project.coverTransform);
+      else drawPreview();
     };
     image.onerror = () => {
       coverImage = null;
@@ -706,7 +719,7 @@
       canvas.classList.remove("is-panning");
     }
     const controls = [...document.querySelectorAll("input,textarea,select,button")]
-      .filter(control => control !== el["cancel-export"] && control !== el["export-video"]);
+      .filter(control => control !== el["cancel-export"] && control !== el["export-video"] && control !== el["shutdown-studio"]);
     const previous = controls.map(control => [control, control.disabled]);
     controls.forEach(control => { control.disabled = true; });
     el["export-video"].disabled = true;
@@ -998,6 +1011,26 @@
     status(exportState.mode === "record" ? "正在停止录制……" : "正在停止合成……");
   }
 
+  async function closeStudio() {
+    if (!window.confirm("关闭制作台会停止本机服务和正在进行的合成。下次使用需要重新双击“启动制作台.bat”。确定关闭吗？")) return;
+    clearTimeout(saveTimer);
+    if (!persistDraft() && !window.confirm("草稿存储空间不足，最新修改无法自动保存。建议先保存 JSON。仍要关闭制作台吗？")) {
+      status("已取消关闭。请先保存 JSON。", true);
+      return;
+    }
+    if (exportState) cancelExport();
+    el["shutdown-studio"].disabled = true;
+    status("正在关闭制作台……");
+    try {
+      await exportApi("/api/shutdown", { method: "POST" });
+      if (mediaEl) mediaEl.pause();
+      document.getElementById("shutdown-screen").classList.remove("hidden");
+    } catch (error) {
+      el["shutdown-studio"].disabled = false;
+      status("关闭失败：" + (error?.message || String(error)), true);
+    }
+  }
+
   function drawCover(x, y, size) {
     ctx.fillStyle = "#172631";
     ctx.fillRect(x, y, size, size);
@@ -1008,25 +1041,19 @@
       const height = source.videoHeight || source.naturalHeight;
       if (width && height) {
         try {
-          if (useVideo) {
-            const placement = getVideoPlacement(width, height, size, project.videoTransform);
-            ctx.save();
-            try {
-              ctx.beginPath();
-              ctx.rect(x, y, size, size);
-              ctx.clip();
-              ctx.drawImage(source, x + placement.dx, y + placement.dy, placement.dw, placement.dh);
-            } finally {
-              ctx.restore();
-            }
-          } else {
-            const scale = Math.max(size / width, size / height);
-            const cropW = size / scale;
-            const cropH = size / scale;
-            ctx.drawImage(source, (width - cropW) / 2, (height - cropH) / 2, cropW, cropH, x, y, size, size);
+          const transform = useVideo ? project.videoTransform : project.coverTransform;
+          const placement = getVideoPlacement(width, height, size, transform);
+          ctx.save();
+          try {
+            ctx.beginPath();
+            ctx.rect(x, y, size, size);
+            ctx.clip();
+            ctx.drawImage(source, x + placement.dx, y + placement.dy, placement.dw, placement.dh);
+          } finally {
+            ctx.restore();
           }
         } catch (_) {
-          // A video can be between decoded frames; the fallback remains visible.
+          // A source can be between decoded frames; the fallback remains visible.
         }
       }
     } else {
@@ -1551,7 +1578,7 @@
           saveDraft();
         }
         currentTime = 0;
-        if (element === video) applyVideoTransform(project.videoTransform);
+        if (element === video && videoIsSelected()) applyVisualTransform(project.videoTransform);
         updateTransport();
         drawPreview();
       });
@@ -1575,6 +1602,7 @@
       const reader = new FileReader();
       reader.onload = () => {
         project.coverData = String(reader.result || "");
+        project.coverTransform = { x: 0, y: 0, scale: 1 };
         project.visualSource = "cover";
         loadCoverData(project.coverData);
         el["cover-name"].textContent = file.name;
@@ -1609,13 +1637,14 @@
       saveDraft();
     });
     el["video-zoom"].addEventListener("input", () => {
-      if (!videoIsSelected()) return;
-      applyVideoTransform({ ...project.videoTransform, scale: Number(el["video-zoom"].value) });
+      if (!videoIsSelected() && !(project.visualSource === "cover" && project.coverData)) return;
+      const transform = videoIsSelected() ? project.videoTransform : project.coverTransform;
+      applyVisualTransform({ ...transform, scale: Number(el["video-zoom"].value) });
       saveDraft();
     });
     el["video-reset"].addEventListener("click", () => {
-      if (!videoIsSelected()) return;
-      applyVideoTransform({ x: 0, y: 0, scale: 1 });
+      if (!videoIsSelected() && !(project.visualSource === "cover" && project.coverData)) return;
+      applyVisualTransform({ x: 0, y: 0, scale: 1 });
       saveDraft();
     });
 
@@ -1639,13 +1668,15 @@
     };
     canvas.addEventListener("pointerdown", event => {
       if (exportState) return;
-      if (!videoIsSelected() || !insideCover(canvasPoint(event))) return;
+      if (!videoIsSelected() && !(project.visualSource === "cover" && project.coverData)) return;
+      if (!insideCover(canvasPoint(event))) return;
       const point = canvasPoint(event);
       const frame = activeFrame();
+      const transform = videoIsSelected() ? project.videoTransform : project.coverTransform;
       videoDrag = {
         id: event.pointerId, startX: point.x, startY: point.y,
-        originX: project.videoTransform.x, originY: project.videoTransform.y,
-        scale: project.videoTransform.scale, frameSize: frame.size,
+        originX: transform.x, originY: transform.y,
+        scale: transform.scale, frameSize: frame.size,
         angle: project.theme === "vinyl-player"
           ? vinylTheme.rotationAngle(currentTime, project.vinylSecondsPerTurn) : 0
       };
@@ -1666,7 +1697,7 @@
       const angle = videoDrag.angle;
       const localX = screenX * Math.cos(angle) + screenY * Math.sin(angle);
       const localY = -screenX * Math.sin(angle) + screenY * Math.cos(angle);
-      applyVideoTransform({
+      applyVisualTransform({
         x: videoDrag.originX + localX,
         y: videoDrag.originY + localY,
         scale: videoDrag.scale
@@ -1682,10 +1713,12 @@
     canvas.addEventListener("pointercancel", finishDrag);
     canvas.addEventListener("wheel", event => {
       if (exportState) return;
-      if (!videoIsSelected() || !insideCover(canvasPoint(event))) return;
+      if (!videoIsSelected() && !(project.visualSource === "cover" && project.coverData)) return;
+      if (!insideCover(canvasPoint(event))) return;
       event.preventDefault();
-      const scale = project.videoTransform.scale * Math.exp(-event.deltaY * 0.001);
-      applyVideoTransform({ ...project.videoTransform, scale });
+      const transform = videoIsSelected() ? project.videoTransform : project.coverTransform;
+      const scale = transform.scale * Math.exp(-event.deltaY * 0.001);
+      applyVisualTransform({ ...transform, scale });
       saveDraft();
     }, { passive: false });
   }
@@ -1814,6 +1847,7 @@
     el["project-save"].addEventListener("click", saveJson);
     el["export-png"].addEventListener("click", exportPng);
     el["export-video"].addEventListener("click", exportVideo);
+    el["shutdown-studio"].addEventListener("click", closeStudio);
     el["cancel-export"].addEventListener("click", cancelExport);
     el["project-import"].addEventListener("change", () => {
       const file = el["project-import"].files?.[0];

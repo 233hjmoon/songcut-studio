@@ -114,13 +114,34 @@ def label(draw: ImageDraw.ImageDraw, xy: tuple[int, int], value: str, chosen_fon
     draw.text(xy, text, font=chosen_font, fill=color, anchor=anchor)
 
 
-def cover_image(data_uri: str) -> Image.Image | None:
+def cover_image(data_uri: str, transform: dict | None = None) -> Image.Image | None:
     if not data_uri or "," not in data_uri:
         return None
     try:
         data = base64.b64decode(data_uri.split(",", 1)[1], validate=True)
         with Image.open(io.BytesIO(data)) as source:
-            return ImageOps.fit(source.convert("RGBA"), (643, 643), Image.Resampling.LANCZOS)
+            artwork = source.convert("RGBA")
+            if not transform:
+                return ImageOps.fit(artwork, (643, 643), Image.Resampling.LANCZOS)
+            width, height = artwork.size
+            def finite_value(key: str, default: float) -> float:
+                try:
+                    value = float(transform.get(key, default))
+                    return value if math.isfinite(value) else default
+                except (TypeError, ValueError):
+                    return default
+            scale = min(3.0, max(1.0, finite_value("scale", 1.0)))
+            base = max(643 / width, 643 / height)
+            crop_width = 643 / (base * scale)
+            crop_height = 643 / (base * scale)
+            max_x = (width / crop_width - 1) / 2
+            max_y = (height / crop_height - 1) / 2
+            x = min(max_x, max(-max_x, finite_value("x", 0.0)))
+            y = min(max_y, max(-max_y, finite_value("y", 0.0)))
+            left = width / 2 - crop_width * (0.5 + x)
+            top = height / 2 - crop_height * (0.5 + y)
+            return artwork.crop((left, top, left + crop_width, top + crop_height)).resize(
+                (643, 643), Image.Resampling.LANCZOS)
     except (ValueError, OSError):
         return None
 
@@ -208,7 +229,7 @@ class FrameRenderer:
         if self.use_video:
             image.paste((0, 0, 0, 0), (92, 145, 735, 788))
         else:
-            artwork = cover_image(self.project.get("coverData", "")) or placeholder_art(self.project.get("theme", "paper"))
+            artwork = cover_image(self.project.get("coverData", ""), self.project.get("coverTransform")) or placeholder_art(self.project.get("theme", "paper"))
             image.alpha_composite(artwork, (92, 145))
         draw = ImageDraw.Draw(image)
         draw.rectangle((91, 144, 735, 788), outline=self.colors["cover_border"], width=2)
@@ -272,7 +293,7 @@ class FrameRenderer:
             d.ellipse((550-radius, 510-radius, 550+radius, 510+radius),
                       outline=(167, 191, 226, 26 if index % 4 == 0 else 12), width=1)
         image.alpha_composite(disc)
-        art = cover_image(self.project.get("coverData", ""))
+        art = cover_image(self.project.get("coverData", ""), self.project.get("coverTransform"))
         if art is None:
             art = placeholder_art("vinyl-player")
         art = art.resize((300, 300), Image.Resampling.LANCZOS)
@@ -332,7 +353,7 @@ class FrameRenderer:
             wd.rectangle((0, 0, WIDTH, HEIGHT), fill=(86, 53, 75, 45))
             image = Image.alpha_composite(image, wash)
 
-        artwork = cover_image(self.project.get("coverData", "")) or placeholder_art("flow-player")
+        artwork = cover_image(self.project.get("coverData", ""), self.project.get("coverTransform")) or placeholder_art("flow-player")
         draw = ImageDraw.Draw(image)
         if self.use_video:
             image.paste((0, 0, 0, 0), (94, 126, 654, 686))
